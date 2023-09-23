@@ -1,15 +1,12 @@
+mod website_fetcher; // Import the new module
+
 use axum::{ extract::{ Extension, Query }, response::Json, routing::get, Router, http::StatusCode };
 use reqwest::Client;
-use scraper::{ Html, Selector };
-use serde::{ Deserialize, Serialize };
 
-#[derive(Debug, Serialize, Deserialize)]
-struct WebsiteData {
-    title: String,
-    description: String,
-    favicon: String,
-    og_image: String,
-}
+use serde::Deserialize;
+use url::Url; // Import the url crate
+
+use website_fetcher::{ fetch_website_data, WebsiteData }; // Import the function
 
 #[derive(Deserialize)]
 struct WebsiteQuery {
@@ -34,55 +31,23 @@ async fn handler(
     Extension(http_client): Extension<Client>,
     Query(query): Query<WebsiteQuery>
 ) -> Result<Json<WebsiteData>, StatusCode> {
-    let response = http_client
-        .get(&query.url) // Use the URL from the query parameter
-        .send().await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let body = response.text().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let document = Html::parse_document(&body);
-
-    let title_selector = Selector::parse("title").unwrap();
-    let description_selector = Selector::parse("meta[name='description']").unwrap();
-    let favicon_selector = Selector::parse("link[rel='icon']").unwrap();
-    let og_image_selector = Selector::parse("meta[property='og:image']").unwrap();
-
-    let title = document
-        .select(&title_selector)
-        .next()
-        .map(|title| title.text().collect::<String>())
-        .unwrap_or_else(|| "Title not found".to_string());
-
-    // Extract the website description
-    let description = document
-        .select(&description_selector)
-        .next()
-        .and_then(|desc| desc.value().attr("content"))
-        .map(|desc| desc.to_string())
-        .unwrap_or_else(|| "Description not found".to_string());
-
-    // Extract the favicon URL
-    let favicon = document
-        .select(&favicon_selector)
-        .next()
-        .and_then(|icon| icon.value().attr("href"))
-        .map(|icon| icon.to_string())
-        .unwrap_or_else(|| "Favicon not found".to_string());
-
-    let og_image = document
-        .select(&og_image_selector)
-        .next()
-        .and_then(|og| og.value().attr("content"))
-        .map(|og| og.to_string())
-        .unwrap_or_else(|| "og:image not found".to_string());
-
-    let website_data = WebsiteData {
-        title,
-        description,
-        favicon,
-        og_image,
+    // Parse the URL and validate it
+    let url = match Url::parse(&query.url) {
+        Ok(url) => url,
+        Err(_) => {
+            return Err(StatusCode::BAD_REQUEST);
+        } // Invalid URL format
     };
+
+    // Ensure the URL has a scheme (e.g., http or https)
+    if url.scheme().is_empty() {
+        return Err(StatusCode::BAD_REQUEST); // Missing scheme
+    }
+
+    // Fetch website data using the new function
+    let website_data = fetch_website_data(&http_client, &url).await.map_err(
+        |_| StatusCode::INTERNAL_SERVER_ERROR
+    )?;
 
     Ok(Json(website_data))
 }

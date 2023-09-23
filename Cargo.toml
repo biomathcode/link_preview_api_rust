@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 axum = "0.6.20"
+url = "2.2"
+
 
 scraper = "0.17.1"
 serde = { version = "1", features = ["derive"] }
